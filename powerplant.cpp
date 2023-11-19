@@ -35,7 +35,7 @@ float h2(float pw,float h1)
     return h2;
 }
 float qin_Reheat(float h3, float h2, float h5, float h4)
-{std::cout<<"  "<<std::endl;
+{
     float qin_reheat=(h3-h2)+(h5-h4);
     return qin_reheat;
 }
