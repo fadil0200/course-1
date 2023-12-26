@@ -1,0 +1,68 @@
+
+
+#include "thingProperties.h"
+#include "DHT.h"
+#define DHTpin 5
+#define DHTTYPE DHT11
+DHT dht(DHTpin,DHTTYPE);
+#define smoke A0
+#define buzz 3
+void setup() {
+  Serial.begin(9600);
+  delay(1500); 
+  pinMode(smoke,INPUT);
+  pinMode(buzz,OUTPUT);
+  dht.begin();
+  initProperties();
+
+  ArduinoCloud.begin(ArduinoIoTPreferredConnection);
+  
+  setDebugMessageLevel(2);
+  ArduinoCloud.printDebugInfo();
+}
+
+void loop() {
+  ArduinoCloud.update();
+ int ss=analogRead(smoke);
+ if(ss>HIGH)
+ {
+   tone(buzz,1000,500);
+   
+ }
+ else
+ {
+   noTone(buzz);
+ }
+ Serial.print("smoke sensor= ");
+ Serial.print(ss); 
+ float hm= dht.readHumidity();
+ Serial.print("humidity is: ");
+ Serial.print(hm);
+ float Temp=dht.readTemperature();
+ Serial.println(Temp);
+ float humidity=hm;
+ float temprature=Temp;
+ String message="Temperature ="+ String(temperature)+" Humidity= "+ String(humidity);
+ 
+
+  
+}
+
+
+
+
+void onTemperatureChange()  {
+ 
+}
+void onHumiditychange()
+{
+  
+}
+
+void onSmokeChange()  {
+}
+
+void onMessageChange()
+{
+  
+}
