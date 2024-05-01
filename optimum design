@@ -1,0 +1,31 @@
+
+from scipy.optimize import minimize
+
+# Objective function: Total surface area of the box
+def objective_function(variables):
+    x, y, h = variables
+    return 2*x*y + 2*x*h + 2*y*h
+
+# Volume constraint: Volume of the box must be 100 cubic units
+def volume_constraint(variables):
+    x, y, h = variables
+    return x * y * h - 728  # Volume constraint: V = 100
+
+# Initial guess for the variables
+initial_guess = [9, 9, 9]
+
+# Define the constraints
+constraints = [{'type': 'eq', 'fun': volume_constraint}]  # Equality constraint for volume
+
+# Run optimization
+result = minimize(objective_function, initial_guess, constraints=constraints, method='trust-constr')
+
+
+# Extract optimized variables
+x_opt, y_opt, h_opt = result.x
+
+# Print results
+print("Optimal length of one side (x):", x_opt)
+print("Optimal length of the other side (y):", y_opt)
+print("Optimal height of the box (h):", h_opt)
+print("Minimum surface area:", result.fun)
