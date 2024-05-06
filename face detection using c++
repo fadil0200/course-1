@@ -1,0 +1,65 @@
+#include <opencv2/opencv.hpp>
+#include <opencv2/highgui/highgui.hpp>
+#include <opencv2/imgproc/imgproc.hpp>
+#include <opencv2/core/core.hpp>
+#include <thread>
+#include "deepface.h"
+
+using namespace cv;
+
+bool face_match = false;
+Mat reference_img;
+
+void check_face(Mat frame) {
+    try {
+        if (DeepFace::verify(frame, reference_img.clone())["verified"]) {
+            face_match = true;
+        }
+        else {
+            face_match = false;
+        }
+    }
+    catch (const std::exception&) {
+        face_match = false;
+    }
+}
+
+int main() {
+    VideoCapture cap(0);
+    cap.set(CAP_PROP_FRAME_WIDTH, 640);
+    cap.set(CAP_PROP_FRAME_HEIGHT, 480);
+
+    int counter = 0;
+    int verification_frequency = 10;
+    int frame_counter = 0;
+
+    reference_img = imread("reference.jpg");
+
+    while (true) {
+        Mat frame;
+        cap.read(frame);
+
+        frame_counter++;
+
+        if (frame_counter % verification_frequency == 0) {
+            std::thread(check_face, frame.clone()).detach();
+        }
+
+        if (face_match) {
+            putText(frame, "match", Point(20, 450), FONT_HERSHEY_SIMPLEX, 2, Scalar(0, 255, 0), 2);
+        }
+        else {
+            putText(frame, "no match", Point(20, 450), FONT_HERSHEY_SIMPLEX, 2, Scalar(0, 0, 255), 2);
+        }
+
+        imshow("video", frame);
+
+        char key = waitKey(1);
+        if (key == 'q') {
+            break;
+        }
+    }
+
+    destroyAllWindows();
+    return 0;
+}
