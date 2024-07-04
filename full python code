@@ -1,0 +1,331 @@
+import cv2
+import face_recognition
+import threading
+import mediapipe as mp
+from gpiozero import DigitalInputDevice, OutputDevice, PWMOutputDevice, Buzzer, DistanceSensor, Button
+from time import sleep
+from w1thermsensor import W1ThermSensor
+import Adafruit_DHT
+
+# GPIO pin numbers for sensors and motors
+LDR_PIN = 4
+SOUND_SENSOR_PIN = 5
+DHT_PIN = 18  # GPIO pin for DHT11
+
+# Light sensor related GPIO pins (LDR)
+IN1_PIN_LDR = 17
+IN2_PIN_LDR = 27
+ENA_PIN_LDR = 22
+
+# Sound sensor related GPIO pins
+MOTOR1_EN = 9
+MOTOR1_IN1 = 10
+MOTOR1_IN2 = 11
+MOTOR2_EN = 12
+MOTOR2_IN1 = 13
+MOTOR2_IN2 = 14
+MOTOR3_EN = 15
+MOTOR3_IN1 = 16
+MOTOR3_IN2 = 19
+MOTOR4_EN = 20
+MOTOR4_IN1 = 21
+MOTOR4_IN2 = 23
+
+# Buzzer and DS18B20 related GPIO pins
+BUZZER_PIN = 24
+
+# Ultrasonic sensor related GPIO pins
+TRIGGER_PIN_1 = 25
+ECHO_PIN_1 = 8
+TRIGGER_PIN_2 = 7
+ECHO_PIN_2 = 6
+TRIGGER_PIN_3 = 13
+ECHO_PIN_3 = 12
+
+# Push button related GPIO pins
+BUTTON_1_PIN = 26
+BUTTON_2_PIN = 16
+
+# Initialize GPIO devices
+ldr = DigitalInputDevice(LDR_PIN)
+in1_ldr = OutputDevice(IN1_PIN_LDR)
+in2_ldr = OutputDevice(IN2_PIN_LDR)
+ena_ldr = PWMOutputDevice(ENA_PIN_LDR)
+
+sound_sensor = DigitalInputDevice(SOUND_SENSOR_PIN)
+
+# Motor setups
+motors = [
+    (PWMOutputDevice(MOTOR1_EN), OutputDevice(MOTOR1_IN1), OutputDevice(MOTOR1_IN2)),
+    (PWMOutputDevice(MOTOR2_EN), OutputDevice(MOTOR2_IN1), OutputDevice(MOTOR2_IN2)),
+    (PWMOutputDevice(MOTOR3_EN), OutputDevice(MOTOR3_IN1), OutputDevice(MOTOR3_IN2)),
+    (PWMOutputDevice(MOTOR4_EN), OutputDevice(MOTOR4_IN1), OutputDevice(MOTOR4_IN2))
+]
+
+# Initialize the buzzer
+buzzer = Buzzer(BUZZER_PIN)
+
+# Initialize the temperature sensor
+sensor = W1ThermSensor()
+
+# Initialize ultrasonic distance sensors
+sensor1 = DistanceSensor(echo=ECHO_PIN_1, trigger=TRIGGER_PIN_1)
+sensor2 = DistanceSensor(echo=ECHO_PIN_2, trigger=TRIGGER_PIN_2)
+sensor3 = DistanceSensor(echo=ECHO_PIN_3, trigger=TRIGGER_PIN_3)
+
+# Initialize DHT11 sensor
+dht11 = Adafruit_DHT.DHT11
+humidity, _ = Adafruit_DHT.read_retry(dht11, DHT_PIN)
+
+# Initialize push buttons
+button1 = Button(BUTTON_1_PIN)
+button2 = Button(BUTTON_2_PIN)
+
+# Function to control motors
+def control_motor(en_pin, in1_pin, in2_pin, speed):
+    speed_value = abs(speed) / 255.0
+    en_pin.value = speed_value
+
+    if speed >= 0:
+        in1_pin.on()
+        in2_pin.off()
+    else:
+        in1_pin.off()
+        in2_pin.on()
+
+# Function to monitor light sensor
+def control_light_sensor():
+    try:
+        while True:
+            light_detected = ldr.value  # Read the digital output of the LDR module
+
+            if light_detected == 0:  # When the light intensity is above the threshold
+                print("Sunlight high for the baby... closing the shades")
+                in1_ldr.on()
+                in2_ldr.off()
+                ena_ldr.value = 1.0  # Set PWM to 100%
+                sleep(3)
+                in1_ldr.off()
+                in2_ldr.off()
+                ena_ldr.value = 0
+            else:
+                in1_ldr.off()
+                in2_ldr.off()
+                ena_ldr.value = 0
+
+            sleep(1)
+    except KeyboardInterrupt:
+        pass
+
+# Function to monitor sound sensor
+def control_sound_sensor():
+    try:
+        while True:
+            sound_detected = sound_sensor.value
+
+            if sound_detected:  # If sound is detected (digital high)
+                motor_speed = 255  # Set a high speed for the motors
+
+                for en_pin, in1_pin, in2_pin in motors:
+                    control_motor(en_pin, in1_pin, in2_pin, motor_speed)
+
+                sleep(3)  # Run the motors for 3 seconds
+
+                for en_pin, in1_pin, in2_pin in motors:
+                    control_motor(en_pin, in1_pin, in2_pin, -motor_speed)
+                sleep(1)
+                for en_pin, in1_pin, in2_pin in motors:
+                    control_motor(en_pin, in1_pin, in2_pin, motor_speed)
+
+            else:
+                for en_pin, in1_pin, in2_pin in motors:
+                    control_motor(en_pin, in1_pin, in2_pin, 0)  # Stop the motors
+
+            sleep(0.1)
+    except KeyboardInterrupt:
+        pass
+
+# Function to monitor temperature sensor
+def monitor_temperature():
+    try:
+        while True:
+            temperature_celsius = sensor.get_temperature()
+
+            print(f"Temperature: {temperature_celsius} °C")
+
+            if temperature_celsius > 38:
+                print("Baby's temperature is high... sending alert")
+                buzzer.on()
+                sleep(1)
+                buzzer.off()
+
+            sleep(1)
+
+    except KeyboardInterrupt:
+        pass
+
+# Function to monitor humidity sensor
+def monitor_humidity():
+    try:
+        while True:
+            humidity, _ = Adafruit_DHT.read_retry(dht11, DHT_PIN)
+
+            if humidity is not None and humidity > 70:  # Adjust threshold as needed
+                print("High humidity detected (possible urine)... alerting")
+                for _ in range(4):
+                    buzzer.on()
+                    sleep(0.2)
+                    buzzer.off()
+                    sleep(0.2)
+
+            sleep(1)
+
+    except KeyboardInterrupt:
+        pass
+
+# Function to monitor ultrasonic sensors
+def ultrasonic_monitor():
+    try:
+        while True:
+            distance1 = sensor1.distance * 100  # Convert to cm
+            distance2 = sensor2.distance * 100  # Convert to cm
+            distance3 = sensor3.distance * 100  # Convert to cm
+
+            print(f"Distance 1: {distance1} cm, Distance 2: {distance2} cm, Distance 3: {distance3} cm")
+
+            if distance1 < 30 or distance2 < 30 or distance3 < 30:
+                print("Obstacle detected! Stopping motors and activating buzzer...")
+                for en_pin, _, _ in motors:
+                    en_pin.value = 0  # Stop all motors
+                buzzer.on()
+                sleep(1)
+                buzzer.off()
+
+            sleep(0.5)
+
+    except KeyboardInterrupt:
+        pass
+
+# Function to control motor movement based on hand gestures detected
+def control_motor_by_hand_gesture(results):
+    try:
+        if results.left_hand_landmarks and results.right_hand_landmarks:
+            left_hand_y = results.left_hand_landmarks.landmark[mp_holistic.HandLandmark.WRIST].y
+            right_hand_y = results.right_hand_landmarks.landmark[mp_holistic.HandLandmark.WRIST].y
+
+            if left_hand_y < 0.3:  # Move left
+                print("Left hand gesture detected. Moving left.")
+                control_motor(motors[0][0], motors[0][1], motors[0][2], 255)
+                control_motor(motors[1][0], motors[1][1], motors[1][2], -255)
+                control_motor(motors[2][0], motors[2][1], motors[2][2], 255)
+                control_motor(motors[3][0], motors[3][1], motors[3][2], -255)
+
+            elif right_hand_y < 0.3:  # Move right
+                print("Right hand gesture detected. Moving right.")
+                control_motor(motors[0][0], motors[0][1], motors[0][2], -255)
+                control_motor(motors[1][0], motors[1][1], motors[1][2], 255)
+                control_motor(motors[2][0], motors[2][1], motors[2][2], -255)
+                control_motor(motors[3][0], motors[3][1], motors[3][2], 255)
+
+            else:
+                for en_pin, _, _ in motors:
+                    control_motor(en_pin, 0, 0, 0)  # Stop motors
+
+    except KeyboardInterrupt:
+        pass
+
+# Function to capture reference image for face recognition
+def capture_reference():
+    global reference_img_encoding
+    ret, ref_frame = cap.read()
+    if ret:
+        reference_img_encoding = face_recognition.face_encodings(ref_frame)[0]
+
+# Function to check face match continuously
+def check_face(frame, reference_img_encoding):
+    global switch_to_body_detection
+    try:
+        frame_encodings = face_recognition.face_encodings(frame)
+        if frame_encodings:
+            matches = face_recognition.compare_faces([reference_img_encoding], frame_encodings[0])
+            face_match = matches[0]
+            if face_match:
+                switch_to_body_detection = True
+        else:
+            switch_to_body_detection = False
+    except Exception as e:
+        print(f"Error during face verification: {e}")
+        switch_to_body_detection = False
+
+# Initialize MediaPipe for body detection
+mp_drawing = mp.solutions.drawing_utils
+mp_holistic = mp.solutions.holistic
+
+cap = cv2.VideoCapture('/dev/video0')
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+
+# Set verification frequency and frame counter
+verification_frequency = 20
+frame_counter = 0
+reference_img_encoding = None
+switch_to_body_detection = False
+motors_running = False
+
+while True:
+    ret, frame = cap.read()
+
+    if ret:
+        frame_counter += 1
+
+        if button1.is_pressed:
+            threading.Thread(target=capture_reference).start()
+
+        if button2.is_pressed:
+            if not motors_running:
+                motors_running = True
+                for en_pin, _, _ in motors:
+                    control_motor(en_pin, 0, 0, 255)  # Start motors moving forward
+                threading.Thread(target=control_motor_by_hand_gesture, args=(results,)).start()
+            else:
+                motors_running = False
+                for en_pin, _, _ in motors:
+                    control_motor(en_pin, 0, 0, 0)  # Stop motors
+
+        if frame_counter % verification_frequency == 0:
+            if reference_img_encoding is not None:
+                threading.Thread(target=check_face, args=(frame.copy(), reference_img_encoding)).start()
+
+        if switch_to_body_detection:
+            img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            results = mp_holistic.Holistic(min_detection_confidence=0.8, min_tracking_confidence=0.8).process(img)
+
+            img = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+            mp_drawing.draw_landmarks(img, results.face_landmarks, mp_holistic.FACEMESH_CONTOURS,
+                                      mp_drawing.DrawingSpec(color=(50, 100, 30), thickness=2, circle_radius=2),
+                                      mp_drawing.DrawingSpec(color=(50, 100, 30), thickness=2, circle_radius=2))
+            mp_drawing.draw_landmarks(img, results.right_hand_landmarks, mp_holistic.HAND_CONNECTIONS,
+                                      mp_drawing.DrawingSpec(color=(100, 70, 600), thickness=2, circle_radius=2),
+                                      mp_drawing.DrawingSpec(color=(100, 100, 60), thickness=2, circle_radius=2))
+            mp_drawing.draw_landmarks(img, results.left_hand_landmarks, mp_holistic.HAND_CONNECTIONS,
+                                      mp_drawing.DrawingSpec(color=(70, 100, 100), thickness=2, circle_radius=2),
+                                      mp_drawing.DrawingSpec(color=(70, 70, 100), thickness=2, circle_radius=2))
+            mp_drawing.draw_landmarks(img, results.pose_landmarks, mp_holistic.POSE_CONNECTIONS,
+                                      mp_drawing.DrawingSpec(color=(150, 90, 60), thickness=2, circle_radius=2),
+                                      mp_drawing.DrawingSpec(color=(150, 100, 60), thickness=2, circle_radius=2))
+
+            cv2.imshow('holistic model detection', img)
+
+        else:
+            if frame_counter % verification_frequency == 0:
+                cv2.putText(frame, "Looking for face...", (20, 450), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 255, 255), thickness=2)
+
+        cv2.imshow("video", frame)
+
+        key = cv2.waitKey(1)
+        if key == ord("q"):
+            break
+
+# Release video capture and close all windows
+cap.release()
+cv2.destroyAllWindows()
